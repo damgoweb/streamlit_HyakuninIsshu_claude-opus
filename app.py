@@ -5,6 +5,7 @@ Streamlitベースのインタラクティブな学習アプリ
 import streamlit as st
 import sys
 from pathlib import Path
+import os
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
@@ -17,6 +18,21 @@ from modules.models import (
 )
 
 
+# 環境判別
+def get_environment():
+    """現在の環境（ブランチ）を取得"""
+    # Streamlit CloudのSecretsから取得を試みる
+    try:
+        if 'BRANCH' in st.secrets:
+            return st.secrets['BRANCH']
+    except:
+        pass
+    
+    # 環境変数から取得を試みる
+    branch = os.environ.get('BRANCH', 'local')
+    return branch
+
+
 # ページ設定
 st.set_page_config(
     page_title="百人一首クイズ",
@@ -24,6 +40,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 開発環境の表示
+env = get_environment()
+if env == 'develop':
+    st.warning("⚠️ 開発環境 (develop branch)")
+elif env == 'local':
+    st.info("💻 ローカル環境")
+# mainブランチの場合は何も表示しない
 
 
 def init_session_state():
@@ -54,6 +78,13 @@ def init_session_state():
 def create_sidebar():
     """サイドバーの作成（設定エリア）"""
     with st.sidebar:
+        # 環境表示
+        env = get_environment()
+        if env == 'develop':
+            st.markdown("### 🔧 開発環境")
+            st.caption("このバージョンはテスト中です")
+            st.divider()
+        
         st.title("⚙️ クイズ設定")
         
         # クイズが開始されているかチェック
@@ -199,7 +230,12 @@ def show_statistics():
 
 def display_main_content():
     """メインコンテンツの表示"""
-    st.title("🎌 百人一首クイズ")
+    # タイトルに環境情報を含める
+    env = get_environment()
+    if env == 'develop':
+        st.title("🎌 百人一首クイズ [開発版]")
+    else:
+        st.title("🎌 百人一首クイズ")
     
     # クイズが開始されていない場合
     if st.session_state.quiz_session is None:
