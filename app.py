@@ -46,7 +46,7 @@ st.set_page_config(
 # 開発環境の表示
 env = get_environment()
 if env == 'develop':
-    st.warning("⚠️ 開発環境 ")
+    st.warning("⚠️ 開発環境 (develop branch)")
 elif env == 'local':
     st.info("💻 ローカル環境")
 # mainブランチの場合は何も表示しない
@@ -72,6 +72,7 @@ def init_session_state():
         st.session_state.selected_answer = None
         st.session_state.is_answered = False
         st.session_state.show_explanation = False
+        st.session_state.show_final_results = False  # 最終結果表示フラグ追加
         
         # 初期化完了フラグ
         st.session_state.initialized = True
@@ -189,6 +190,9 @@ def create_sidebar():
 
 def start_or_reset_quiz():
     """クイズを開始またはリセット"""
+    # 最終結果表示フラグをリセット
+    st.session_state.show_final_results = False
+    
     # 新しいセッションを作成
     st.session_state.quiz_session = st.session_state.quiz_manager.create_quiz_session(
         st.session_state.quiz_config
@@ -239,8 +243,11 @@ def display_main_content():
     else:
         st.title("🎌 百人一首クイズ")
     
+    # 最終結果表示モードの場合
+    if getattr(st.session_state, 'show_final_results', False):
+        show_final_results()
     # クイズが開始されていない場合
-    if st.session_state.quiz_session is None:
+    elif st.session_state.quiz_session is None:
         display_welcome_screen()
     else:
         display_quiz_screen()
@@ -409,7 +416,9 @@ def display_quiz_screen():
                     next_question()
             else:
                 if st.button("🏁 結果を見る", type="primary", use_container_width=True):
-                    show_final_results()
+                    # 結果表示モードに切り替え
+                    st.session_state.show_final_results = True
+                    st.rerun()
     
     # 結果と解説の表示
     if st.session_state.is_answered:
@@ -562,11 +571,15 @@ def show_final_results():
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("🔄 もう一度同じ設定で", type="primary", use_container_width=True):
+            # 最終結果表示フラグをリセット
+            st.session_state.show_final_results = False
             # 同じ設定で新しいクイズを開始
             start_or_reset_quiz()
     
     with col2:
         if st.button("⚙️ 設定を変更する", use_container_width=True):
+            # 最終結果表示フラグをリセット
+            st.session_state.show_final_results = False
             # セッションをクリアして初期画面に戻る
             st.session_state.quiz_session = None
             st.session_state.current_question = None
