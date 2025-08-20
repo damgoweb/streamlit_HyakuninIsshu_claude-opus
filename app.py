@@ -6,6 +6,8 @@ import streamlit as st
 import sys
 from pathlib import Path
 import os
+import datetime
+import random
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
@@ -255,7 +257,7 @@ def display_welcome_screen():
     - **下の句当て**: 上の句から正しい下の句を選ぶ
     - **上の句当て**: 下の句から正しい上の句を選ぶ
     - **作者当て**: 歌から正しい作者を選ぶ
-    - **作者から歌当て**: 作者から正しい歌を選ぶ
+    - **作者から歌当て**: 作者名から正しい歌を選ぶ
     
     #### 🎯 遊び方
     1. 左側のサイドバーで設定を選択
@@ -276,7 +278,22 @@ def display_welcome_screen():
     st.divider()
     st.subheader("📖 今日の一首")
     
-    sample_poem = st.session_state.data_loader.get_poem_by_id(1)
+    # 日付ベースでランダムに選択（毎日異なる歌を表示）
+    today = datetime.date.today()
+    seed = int(today.strftime("%Y%m%d"))
+    random.seed(seed)
+    poem_id = random.randint(1, 100)
+    
+    # セッション状態で管理（リロードしても同じ歌を表示）
+    if 'todays_poem_id' not in st.session_state:
+        st.session_state.todays_poem_id = poem_id
+    
+    # 閲覧履歴を管理（オプション）
+    if 'viewed_poem_ids' not in st.session_state:
+        st.session_state.viewed_poem_ids = [st.session_state.todays_poem_id]
+    
+    sample_poem = st.session_state.data_loader.get_poem_by_id(st.session_state.todays_poem_id)
+    
     if sample_poem:
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -294,6 +311,29 @@ def display_welcome_screen():
                 st.caption("読み")
                 st.caption(f"{sample_poem['reading_upper']}")
                 st.caption(f"{sample_poem['reading_lower']}")
+            
+            # リロードボタン（新しい歌を表示）
+            remaining_poems = 100 - len(set(st.session_state.viewed_poem_ids))
+            button_label = f"🔄 別の歌を見る (残り{remaining_poems}首)"
+            
+            # 全ての歌を見た場合はリセット
+            if remaining_poems <= 0:
+                if st.button("🔄 最初から見る", key="reset_poems"):
+                    st.session_state.viewed_poem_ids = []
+                    st.session_state.todays_poem_id = random.randint(1, 100)
+                    st.rerun()
+            else:
+                if st.button(button_label, key="reload_poem"):
+                    # まだ見ていない歌から選択
+                    available_ids = [i for i in range(1, 101) if i not in st.session_state.viewed_poem_ids]
+                    if available_ids:
+                        new_poem_id = random.choice(available_ids)
+                        st.session_state.todays_poem_id = new_poem_id
+                        st.session_state.viewed_poem_ids.append(new_poem_id)
+                        st.rerun()
+            
+            # 閲覧進捗の表示
+            st.caption(f"閲覧済み: {len(set(st.session_state.viewed_poem_ids))}/100首")
 
 
 def display_quiz_screen():
@@ -453,6 +493,40 @@ def display_result_and_explanation():
         st.markdown(question.get_explanation())
 
 
+def show_detailed_statistics():
+    """詳細な統計情報を表示"""
+    session = st.session_state.quiz_session
+    if not session:
+        return
+    
+    with st.expander("📊 詳細統計", expanded=True):
+        # 問題タイプ別の統計
+        stats = st.session_state.quiz_manager.get_question_statistics(session)
+        
+        st.markdown("#### 問題タイプ別成績")
+        for q_type, count in stats['by_type'].items():
+            pattern = QUESTION_PATTERNS[q_type]
+            type_stats = stats['correct_by_type'][q_type]
+            if type_stats['total'] > 0:
+                accuracy = (type_stats['correct'] / type_stats['total']) * 100
+                st.write(f"- {pattern['display_name']}: {type_stats['correct']}/{type_stats['total']} ({accuracy:.0f}%)")
+        
+        # セッション情報
+        st.markdown("#### セッション情報")
+        st.write(f"- 使用した問題ID: {session.used_poem_ids[:10]}..." if len(session.used_poem_ids) > 10 else f"- 使用した問題ID: {session.used_poem_ids}")
+        st.write(f"- 出題モード: {'順番' if session.quiz_mode == QuizMode.SEQUENTIAL else 'ランダム'}")
+
+
+def show_incorrect_questions():
+    """間違えた問題を表示"""
+    session = st.session_state.quiz_session
+    if not session or not session.questions:
+        return
+    
+    st.info("間違えた問題の復習機能は今後実装予定です")
+    # TODO: 回答履歴を保存して、間違えた問題を表示する機能を実装
+
+
 def show_final_results():
     """最終結果を表示"""
     session = st.session_state.quiz_session
@@ -480,6 +554,37 @@ def show_final_results():
         st.warning("まずまずの成績です。もう一度挑戦してみましょう！💪")
     else:
         st.error("もっと練習が必要かもしれません。頑張りましょう！📚")
+    
+    # アクションボタンを追加
+    st.divider()
+    st.markdown("### 次のアクション")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("🔄 もう一度同じ設定で", type="primary", use_container_width=True):
+            # 同じ設定で新しいクイズを開始
+            start_or_reset_quiz()
+    
+    with col2:
+        if st.button("⚙️ 設定を変更する", use_container_width=True):
+            # セッションをクリアして初期画面に戻る
+            st.session_state.quiz_session = None
+            st.session_state.current_question = None
+            st.session_state.selected_answer = None
+            st.session_state.is_answered = False
+            st.session_state.show_explanation = False
+            st.rerun()
+    
+    with col3:
+        if st.button("📊 詳細な統計を見る", use_container_width=True):
+            show_detailed_statistics()
+    
+    # 間違えた問題の復習（オプション）
+    if stats['incorrect'] > 0:
+        st.divider()
+        st.markdown("### 📝 間違えた問題の復習")
+        if st.checkbox("間違えた問題を確認する"):
+            show_incorrect_questions()
 
 
 def main():
