@@ -44,7 +44,7 @@ st.set_page_config(
 # 開発環境の表示
 env = get_environment()
 if env == 'develop':
-    st.warning("⚠️ 開発環境 (develop branch)")
+    st.warning("⚠️ 開発環境 ")
 elif env == 'local':
     st.info("💻 ローカル環境")
 # mainブランチの場合は何も表示しない
