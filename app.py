@@ -444,8 +444,25 @@ def submit_answer():
     session.total_answered += 1
     
     # 正誤判定
-    if question.check_answer(st.session_state.selected_answer):
+    is_correct = question.check_answer(st.session_state.selected_answer)
+    if is_correct:
         session.score += 1
+    
+    # 回答履歴に記録（新しいセッションの場合のみ）
+    if hasattr(session, 'record_answer'):
+        session.record_answer(question, st.session_state.selected_answer, is_correct)
+    elif hasattr(session, 'answer_history'):
+        # 手動で履歴を追加（後方互換性のため）
+        session.answer_history.append({
+            'question_number': session.total_answered,
+            'poem_id': question.poem_id,
+            'question_type': question.question_type,
+            'question': question,
+            'selected_index': st.session_state.selected_answer,
+            'is_correct': is_correct,
+            'correct_answer': question.get_correct_answer(),
+            'selected_answer': question.options[st.session_state.selected_answer]
+        })
     
     st.session_state.show_explanation = True
     
@@ -532,8 +549,65 @@ def show_incorrect_questions():
     if not session or not session.questions:
         return
     
-    st.info("間違えた問題の復習機能は今後実装予定です")
-    # TODO: 回答履歴を保存して、間違えた問題を表示する機能を実装
+    # 後方互換性チェック
+    if not hasattr(session, 'get_incorrect_answers'):
+        st.info("この機能を使用するには、クイズをリセットして新しく開始してください。")
+        return
+    
+    incorrect_answers = session.get_incorrect_answers()
+    
+    if not incorrect_answers:
+        st.success("全問正解です！素晴らしい！")
+        return
+    
+    st.markdown(f"#### 間違えた問題: {len(incorrect_answers)}問")
+    
+    for i, answer_data in enumerate(incorrect_answers, 1):
+        question = answer_data['question']
+        pattern = QUESTION_PATTERNS[question.question_type]
+        
+        with st.expander(f"❌ 問題{answer_data['question_number']}: {pattern['display_name']}", expanded=(i==1)):
+            # 問題文
+            st.markdown("**問題:**")
+            st.write(question.question_text)
+            
+            # 選択肢と回答状況
+            st.markdown("**選択肢:**")
+            for j, option in enumerate(question.options):
+                if j == question.correct_answer_index:
+                    st.success(f"✅ 正解: {option}")
+                elif j == answer_data['selected_index']:
+                    st.error(f"❌ あなたの回答: {option}")
+                else:
+                    st.write(f"　 {option}")
+            
+            # 歌の詳細情報
+            st.divider()
+            st.markdown("**詳細情報:**")
+            poem = question.poem_data
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.info(f"""
+                **第{poem['id']}首**
+                
+                {poem['upper']}  
+                　　{poem['lower']}
+                
+                **作者**: {poem['author']}
+                """)
+            
+            with col2:
+                if 'reading_upper' in poem and poem['reading_upper']:
+                    st.caption("読み")
+                    st.caption(f"{poem['reading_upper']}")
+                    st.caption(f"{poem['reading_lower']}")
+            
+            # 解説があれば表示（expanderを使わず直接表示）
+            if 'description' in poem and poem['description']:
+                st.divider()
+                st.markdown("**📚 解説:**")
+                st.write(poem['description'])
 
 
 def show_final_results():
