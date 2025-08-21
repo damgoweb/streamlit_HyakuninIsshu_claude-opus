@@ -9,6 +9,14 @@ import os
 import datetime
 import random
 
+# ページ設定（必ず最初のStreamlitコマンドとして実行）
+st.set_page_config(
+    page_title="百人一首クイズ",
+    page_icon="🎌",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -35,23 +43,6 @@ def get_environment():
     return branch
 
 
-# ページ設定
-st.set_page_config(
-    page_title="百人一首クイズ",
-    page_icon="🎌",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# 開発環境の表示
-env = get_environment()
-if env == 'develop':
-    st.warning("⚠️ 開発環境 (develop branch)")
-elif env == 'local':
-    st.info("💻 ローカル環境")
-# mainブランチの場合は何も表示しない
-
-
 def init_session_state():
     """セッション状態の初期化"""
     if 'initialized' not in st.session_state:
@@ -73,6 +64,7 @@ def init_session_state():
         st.session_state.is_answered = False
         st.session_state.show_explanation = False
         st.session_state.show_final_results = False  # 最終結果表示フラグ追加
+        st.session_state.app_mode = '🏠 ホーム'  # デフォルトモード設定
         
         # 初期化完了フラグ
         st.session_state.initialized = True
@@ -87,105 +79,131 @@ def create_sidebar():
             st.markdown("### 🔧 開発環境")
             st.caption("このバージョンはテスト中です")
             st.divider()
+        elif env == 'local':
+            st.markdown("### 💻 ローカル環境")
+            st.divider()
         
-        st.title("⚙️ クイズ設定")
-        
-        # クイズが開始されているかチェック
-        quiz_started = st.session_state.quiz_session is not None
-        
-        # 出題モード選択
-        st.subheader("📝 出題モード")
-        mode_options = {
-            "sequential": "順番モード（1番から順に）",
-            "random": "ランダムモード"
-        }
-        selected_mode = st.radio(
-            "出題順序を選択",
-            options=list(mode_options.keys()),
-            format_func=lambda x: mode_options[x],
-            index=0 if st.session_state.quiz_config.quiz_mode == QuizMode.SEQUENTIAL else 1,
-            disabled=quiz_started,
-            help="クイズ開始後は変更できません"
+        # モード選択
+        st.markdown("### 📱 メニュー")
+        app_mode = st.radio(
+            "機能を選択",
+            ["🏠 ホーム", "🎯 クイズ", "🔊 音声ライブラリ"],
+            index=["🏠 ホーム", "🎯 クイズ", "🔊 音声ライブラリ"].index(
+                f"🎯 クイズ" if st.session_state.quiz_session else st.session_state.get('app_mode', '🏠 ホーム')
+            ),
+            key="mode_selector"
         )
         
-        # 問題タイプ選択
-        st.subheader("❓ 問題タイプ")
-        question_type_options = {
-            QuestionType.LOWER_MATCH.value: "下の句当て",
-            QuestionType.UPPER_MATCH.value: "上の句当て",
-            QuestionType.AUTHOR_MATCH.value: "作者当て",
-            QuestionType.POEM_BY_AUTHOR.value: "作者から歌当て"
-        }
-        
-        selected_types = st.multiselect(
-            "出題する問題タイプを選択（複数可）",
-            options=list(question_type_options.keys()),
-            default=[QuestionType.LOWER_MATCH.value],
-            format_func=lambda x: question_type_options[x],
-            disabled=quiz_started,
-            help="複数選択すると、ランダムに出題されます"
-        )
-        
-        # 問題数設定
-        st.subheader("🔢 問題数")
-        max_questions = st.slider(
-            "出題する問題数",
-            min_value=5,
-            max_value=100,
-            value=10,
-            step=5,
-            disabled=quiz_started,
-            help="最大100問まで設定可能"
-        )
-        
-        # 設定を更新
-        if not quiz_started:
-            st.session_state.quiz_config.quiz_mode = QuizMode(selected_mode)
-            st.session_state.quiz_config.question_types = selected_types if selected_types else [QuestionType.LOWER_MATCH.value]
-            st.session_state.quiz_config.max_questions = max_questions
+        # モード変更時の処理
+        if app_mode != st.session_state.get('app_mode'):
+            st.session_state.app_mode = app_mode
+            if app_mode == "🏠 ホーム":
+                # クイズをリセット
+                st.session_state.quiz_session = None
+                st.session_state.show_final_results = False
         
         st.divider()
         
-        # クイズコントロール
-        st.subheader("🎮 コントロール")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button(
-                "🚀 開始" if not quiz_started else "🔄 リセット",
-                type="primary" if not quiz_started else "secondary",
-                use_container_width=True
-            ):
-                start_or_reset_quiz()
-        
-        with col2:
-            if st.button("📊 統計", use_container_width=True, disabled=not quiz_started):
-                show_statistics()
-        
-        # 進捗表示
-        if quiz_started and st.session_state.quiz_session:
+        # クイズモードの場合のみ設定を表示
+        if st.session_state.app_mode == "🎯 クイズ":
+            st.title("⚙️ クイズ設定")
+            
+            # クイズが開始されているかチェック（最終結果表示中は設定変更可能にする）
+            quiz_started = st.session_state.quiz_session is not None and not getattr(st.session_state, 'show_final_results', False)
+            
+            # 出題モード選択
+            st.subheader("🔍 出題モード")
+            mode_options = {
+                "sequential": "順番モード（1番から順に）",
+                "random": "ランダムモード"
+            }
+            selected_mode = st.radio(
+                "出題順序を選択",
+                options=list(mode_options.keys()),
+                format_func=lambda x: mode_options[x],
+                index=0 if st.session_state.quiz_config.quiz_mode == QuizMode.SEQUENTIAL else 1,
+                disabled=quiz_started,
+                help="クイズ開始後は変更できません"
+            )
+            
+            # 問題タイプ選択
+            st.subheader("❓ 問題タイプ")
+            question_type_options = {
+                QuestionType.LOWER_MATCH.value: "下の句当て",
+                QuestionType.UPPER_MATCH.value: "上の句当て",
+                QuestionType.AUTHOR_MATCH.value: "作者当て",
+                QuestionType.POEM_BY_AUTHOR.value: "作者から歌当て"
+            }
+            
+            selected_types = st.multiselect(
+                "出題する問題タイプを選択（複数可）",
+                options=list(question_type_options.keys()),
+                default=[QuestionType.LOWER_MATCH.value],
+                format_func=lambda x: question_type_options[x],
+                disabled=quiz_started,
+                help="複数選択すると、ランダムに出題されます"
+            )
+            
+            # 問題数設定
+            st.subheader("🔢 問題数")
+            max_questions = st.slider(
+                "出題する問題数",
+                min_value=5,
+                max_value=100,
+                value=10,
+                step=5,
+                disabled=quiz_started,
+                help="最大100問まで設定可能"
+            )
+            
+            # 設定を更新
+            if not quiz_started:
+                st.session_state.quiz_config.quiz_mode = QuizMode(selected_mode)
+                st.session_state.quiz_config.question_types = selected_types if selected_types else [QuestionType.LOWER_MATCH.value]
+                st.session_state.quiz_config.max_questions = max_questions
+            
             st.divider()
-            st.subheader("📈 進捗状況")
             
-            session = st.session_state.quiz_session
-            # questionsリストの長さから実際の進捗を計算
-            current_num = len(session.questions)
-            progress = session.total_answered / session.max_questions if session.total_answered > 0 else 0
+            # クイズコントロール
+            st.subheader("🎮 コントロール")
             
-            st.progress(min(progress, 1.0))
-            st.write(f"問題: {current_num}/{session.max_questions}")
-            st.write(f"回答済み: {session.total_answered}問")
-            st.write(f"{session.get_score_text()}")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(
+                    "🚀 開始" if not quiz_started else "🔄 リセット",
+                    type="primary" if not quiz_started else "secondary",
+                    use_container_width=True
+                ):
+                    start_or_reset_quiz()
             
-            # 統計情報
-            if session.total_answered > 0:
-                accuracy = (session.score / session.total_answered) * 100
-                if accuracy >= 80:
-                    st.success(f"正答率: {accuracy:.1f}% 🎉")
-                elif accuracy >= 60:
-                    st.info(f"正答率: {accuracy:.1f}% 👍")
-                else:
-                    st.warning(f"正答率: {accuracy:.1f}% 💪")
+            with col2:
+                if st.button("📊 統計", use_container_width=True, disabled=not quiz_started):
+                    show_statistics()
+            
+            # 進捗表示
+            if quiz_started and st.session_state.quiz_session:
+                st.divider()
+                st.subheader("📈 進捗状況")
+                
+                session = st.session_state.quiz_session
+                # questionsリストの長さから実際の進捗を計算
+                current_num = len(session.questions)
+                progress = session.total_answered / session.max_questions if session.total_answered > 0 else 0
+                
+                st.progress(min(progress, 1.0))
+                st.write(f"問題: {current_num}/{session.max_questions}")
+                st.write(f"回答済み: {session.total_answered}問")
+                st.write(f"{session.get_score_text()}")
+                
+                # 統計情報
+                if session.total_answered > 0:
+                    accuracy = (session.score / session.total_answered) * 100
+                    if accuracy >= 80:
+                        st.success(f"正答率: {accuracy:.1f}% 🎉")
+                    elif accuracy >= 60:
+                        st.info(f"正答率: {accuracy:.1f}% 👍")
+                    else:
+                        st.warning(f"正答率: {accuracy:.1f}% 💪")
 
 
 def start_or_reset_quiz():
@@ -238,19 +256,159 @@ def display_main_content():
     """メインコンテンツの表示"""
     # タイトルに環境情報を含める
     env = get_environment()
-    if env == 'develop':
-        st.title("🎌 百人一首クイズ [開発版]")
-    else:
-        st.title("🎌 百人一首クイズ")
     
-    # 最終結果表示モードの場合
-    if getattr(st.session_state, 'show_final_results', False):
-        show_final_results()
-    # クイズが開始されていない場合
-    elif st.session_state.quiz_session is None:
+    # モードに応じて表示を切り替え
+    if st.session_state.app_mode == "🏠 ホーム":
+        if env == 'develop':
+            st.title("🎌 百人一首 [開発版]")
+        else:
+            st.title("🎌 百人一首")
         display_welcome_screen()
+    
+    elif st.session_state.app_mode == "🎯 クイズ":
+        if env == 'develop':
+            st.title("🎌 百人一首クイズ [開発版]")
+        else:
+            st.title("🎌 百人一首クイズ")
+        
+        # 最終結果表示モードの場合
+        if getattr(st.session_state, 'show_final_results', False):
+            show_final_results()
+        # クイズが開始されていない場合
+        elif st.session_state.quiz_session is None:
+            display_quiz_welcome()
+        else:
+            display_quiz_screen()
+    
+    elif st.session_state.app_mode == "🔊 音声ライブラリ":
+        if env == 'develop':
+            st.title("🔊 音声ライブラリ [開発版]")
+        else:
+            st.title("🔊 音声ライブラリ")
+        display_audio_library()
+
+
+def display_quiz_welcome():
+    """クイズモードのウェルカム画面"""
+    st.markdown("""
+    ### クイズを始める準備ができました！
+    
+    左側のサイドバーで以下の設定を確認してください：
+    - **出題モード**: 順番またはランダム
+    - **問題タイプ**: 出題する問題の種類
+    - **問題数**: 5〜100問
+    
+    設定が完了したら、「🚀 開始」ボタンをクリックしてください。
+    """)
+    
+    # クイズの説明
+    with st.expander("📚 問題タイプの説明", expanded=False):
+        st.markdown("""
+        - **下の句当て**: 上の句を見て、正しい下の句を選ぶ
+        - **上の句当て**: 下の句を見て、正しい上の句を選ぶ
+        - **作者当て**: 歌を見て、正しい作者を選ぶ
+        - **作者から歌当て**: 作者名から、その人の歌を選ぶ
+        """)
+
+
+def check_available_audio():
+    """利用可能な音声ファイルをチェック"""
+    available_audio = {}
+    for i in range(1, 101):
+        audio_path = f"data/{i}.mp3"
+        if os.path.exists(audio_path):
+            available_audio[i] = audio_path
+    return available_audio
+
+
+def display_audio_library():
+    """音声ライブラリの表示"""
+    st.markdown("### 百人一首音声コレクション")
+    
+    # 利用可能な音声ファイルをチェック
+    available_audio = check_available_audio()
+    
+    if available_audio:
+        st.info(f"🎵 現在 {len(available_audio)} 首の音声が利用可能です")
+        
+        # 再生コントロール
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("▶️ 連続再生", use_container_width=True):
+                st.session_state.continuous_play = True
+                st.info("連続再生機能は開発中です")
+        
+        with col2:
+            if st.button("🔀 ランダム再生", use_container_width=True):
+                st.session_state.random_play = True
+                st.info("ランダム再生機能は開発中です")
+        
+        with col3:
+            if st.button("⏹️ 停止", use_container_width=True):
+                st.session_state.continuous_play = False
+                st.session_state.random_play = False
+        
+        st.divider()
+        
+        # 歌のリスト表示
+        st.markdown("### 📜 歌一覧")
+        
+        # 利用可能な音声のみ表示するか全て表示するか
+        show_all = st.checkbox("音声がない歌も表示", value=False)
+        
+        # 表示する歌のリスト
+        if show_all:
+            poem_ids = range(1, 101)
+        else:
+            poem_ids = sorted(available_audio.keys())
+        
+        # 歌を表示
+        for poem_id in poem_ids:
+            poem = st.session_state.data_loader.get_poem_by_id(poem_id)
+            if poem:
+                # 音声が利用可能な場合
+                if poem_id in available_audio:
+                    # 上の句の最初の部分を取得（表示用）
+                    upper_preview = poem['upper'][:15] + "..." if len(poem['upper']) > 15 else poem['upper']
+                    with st.expander(f"🔊 第{poem_id}首 - {poem['author']} 「{upper_preview}」", expanded=False):
+                        # 歌の内容
+                        col1, col2 = st.columns([3, 1])
+                        
+                        with col1:
+                            st.markdown(f"**{poem['upper']}**")
+                            st.markdown(f"**{poem['lower']}**")
+                            
+                            # 読み仮名
+                            if 'reading_upper' in poem and poem['reading_upper']:
+                                st.caption("読み：")
+                                st.caption(f"{poem['reading_upper']}")
+                                st.caption(f"{poem['reading_lower']}")
+                        
+                        with col2:
+                            st.write("")  # スペース調整
+                        
+                        # 音声プレーヤー
+                        audio_file = available_audio[poem_id]
+                        with open(audio_file, "rb") as f:
+                            audio_bytes = f.read()
+                        st.audio(audio_bytes, format="audio/mp3")
+                        
+                        # 解説
+                        if 'description' in poem and poem['description']:
+                            with st.container():
+                                st.markdown("**📖 解説**")
+                                st.write(poem['description'])
+                
+                # 音声が利用できない場合（show_all=Trueの時のみ）
+                else:
+                    # 上の句の最初の部分を取得（表示用）
+                    upper_preview = poem['upper'][:15] + "..." if len(poem['upper']) > 15 else poem['upper']
+                    with st.expander(f"第{poem_id}首 - {poem['author']} 「{upper_preview}」 (音声なし)", expanded=False):
+                        st.markdown(f"**{poem['upper']}**")
+                        st.markdown(f"**{poem['lower']}**")
+                        st.info("🔇 この歌の音声はまだ利用できません")
     else:
-        display_quiz_screen()
+        st.warning("音声ファイルが見つかりません。dataフォルダに音声ファイル（1.mp3〜100.mp3）を配置してください。")
 
 
 def display_welcome_screen():
@@ -360,7 +518,7 @@ def display_quiz_screen():
         st.subheader(f"問題 {current_num}/{session.max_questions}")
     with col2:
         pattern = QUESTION_PATTERNS[question.question_type]
-        st.info(f"📝 {pattern['display_name']}")
+        st.info(f"🔍 {pattern['display_name']}")
     with col3:
         if session.total_answered > 0:
             accuracy = (session.score / session.total_answered) * 100
@@ -415,7 +573,7 @@ def display_quiz_screen():
                 if st.button("➡️ 次の問題", type="primary", use_container_width=True):
                     next_question()
             else:
-                if st.button("🏁 結果を見る", type="primary", use_container_width=True):
+                if st.button("🏆 結果を見る", type="primary", use_container_width=True):
                     # 結果表示モードに切り替え
                     st.session_state.show_final_results = True
                     st.rerun()
@@ -676,7 +834,16 @@ def show_final_results():
 
 def main():
     """メイン処理"""
-    # セッション状態の初期化
+    # 開発環境の表示
+    env = get_environment()
+    if env == 'develop':
+        st.warning("⚠️ 開発環境 (develop branch)")
+    elif env == 'local':
+        st.info("💻 ローカル環境")
+    # mainブランチの場合は何も表示しない
+    
+    # セッション状態の初期化    # セッション状態の初期化
+
     init_session_state()
     
     # サイドバーの作成
