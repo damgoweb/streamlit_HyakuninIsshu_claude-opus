@@ -113,6 +113,7 @@ class QuizSession:
     current_answer: Optional[int] = None                # 現在の回答
     is_answered: bool = False                           # 回答済みフラグ
     max_questions: int = 100                            # 最大問題数
+    answer_history: List[Dict] = field(default_factory=list)  # 回答履歴
     
     def get_progress(self) -> str:
         """進捗状況を取得"""
@@ -151,6 +152,23 @@ class QuizSession:
             return True
         return False
     
+    def record_answer(self, question: Question, selected_index: int, is_correct: bool) -> None:
+        """回答を履歴に記録"""
+        self.answer_history.append({
+            'question_number': len(self.answer_history) + 1,
+            'poem_id': question.poem_id,
+            'question_type': question.question_type,
+            'question': question,
+            'selected_index': selected_index,
+            'is_correct': is_correct,
+            'correct_answer': question.get_correct_answer(),
+            'selected_answer': question.options[selected_index] if 0 <= selected_index < len(question.options) else None
+        })
+    
+    def get_incorrect_answers(self) -> List[Dict]:
+        """間違えた回答のリストを取得"""
+        return [answer for answer in self.answer_history if not answer['is_correct']]
+    
     def next_question(self) -> bool:
         """次の問題に進む"""
         if self.current_question_index < len(self.questions) - 1:
@@ -169,6 +187,7 @@ class QuizSession:
         self.total_answered = 0
         self.current_answer = None
         self.is_answered = False
+        self.answer_history.clear()  # 回答履歴もクリア
     
     def is_completed(self) -> bool:
         """クイズが完了したかチェック"""
@@ -277,5 +296,9 @@ if __name__ == "__main__":
     session = QuizSession()
     session.add_question(test_question)
     print(f"QuizSessionクラスのテスト: {session.get_progress()}")
+    
+    # 回答履歴のテスト
+    session.record_answer(test_question, 0, True)
+    print(f"回答履歴: {len(session.answer_history)}件")
     
     print("\n✅ データモデル定義完了")
